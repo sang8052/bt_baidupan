@@ -97,7 +97,8 @@ class BDpan:
     # 获得指定目录的信息
     def Get_PathDir(self,args):
         api = "https://pan.baidu.com/rest/2.0/xpan/file?method=list"
-        param = "&dir=" + args.path + "&start=" + args.start + "&limit=10000&folder=0"+"&access_token="+self.Get_Access_Token()
+        start = str(args.start)
+        param = "&dir=" + args.path + "&start=" + start + "&limit=10000&folder=0"+"&access_token="+self.Get_Access_Token()
         param = param.replace("+","%2b")
         Dir = requests.get(api+param,verify=False).text
         return Dir
@@ -109,6 +110,28 @@ class BDpan:
         File = requests.get(api + param, verify=False).text
         dlink = json.loads(File)['list'][0]['dlink']+"&access_token="+self.Get_Access_Token()
         os.popen("wget -d --header=\"User-Agent: pan.baidu.com\" \""+dlink+"\" -O \""+path+"\"")
+
+
+    # 下载指定的文件夹
+    def PathDownload(self,fpath,dpath):
+        #获得指定目录的信息
+        path = public.dict_obj()
+        path.path = fpath
+        path.start = "0"
+        PDir =json.loads(self.Get_PathDir(path))
+        if not os.path.exists(dpath):
+            os.mkdir(dpath)
+        # 递归下载目录下的文件
+        for Dir in PDir["list"]:
+            # 目标对象是文件夹
+            if Dir["isdir"] == 1:
+                ndir = public.dict_obj()
+                ndir.path = Dir["path"]
+                ndir.start = "0"
+                self.PathDownload(ndir, dpath + "/" + Dir["server_filename"])
+            else:
+                # 下载目标文件
+                self.FileDownLoad(dpath + "/" + Dir["server_filename"], str(Dir["fs_id"]))
 
     # 删除指定的文件
     def FileDel(self,path):
@@ -157,7 +180,7 @@ class BDpan:
             block_list.append(md5)
             cut = cut + 1
         block_list = json.dumps(block_list)
-        # 与上传
+        #预先上传
         api = " https://pan.baidu.com/rest/2.0/xpan/file?method=precreate&access_token=" + self.Get_Access_Token()
         param = {"path":spath,"size":lsize,"isdir":0,"autoinit":1,"block_list":block_list}
 
@@ -200,13 +223,16 @@ class BDpan:
     #切片后的文件上传
     def FileSplitUpload(self,api,tpath,ctry,block_list,cut):
         try:
-            upfile = open(tpath, 'rb');
+            upfile = open(tpath, 'rb')
             files = {'file': open(tpath, 'rb')}
-            Res = requests.post(url=api, files=files, verify=False).text
+            # 修复因为python 默认上传超时导致的错误
+            Res = requests.post(url=api, files=files, verify=False,timeout=120).text
             if json.loads(Res)["md5"] !="":
                 self.LogPrint(Res)
         except:
             upfile.close()
+            self.LogPrint(api)
+            exit()
             if ctry <= 3:
                 self.LogPrint("上传失败,正在重试中...")
                 ctry = ctry + 1
@@ -259,19 +285,22 @@ if __name__ == '__main__':
     FileID = ""
     FileUpLoad = ""
     UploadPath = ""
+    DownPath = ""
     argv = sys.argv[1:]
     try:
-        opts, args = getopt.getopt(argv, "hdmup:f:s:")
+        opts, args = getopt.getopt(argv, "hdamup:f:s:i:")
     except getopt.GetoptError:
-        print 'Using BDpan.py with Param \n-d [DownLoadFile] \n-u [UploadFile] \n-p <Upload/DownLoad File Path> \n-f <Baidu Pan FileID,Used Only In DownLoad Mode> \n-s <Baidu Pan FilePath,Used Only In Upload Mode> \n-m <Move File When Upload Success>'
+        print 'Using BDpan.py with Param \n-d [DownLoadFile] \n-a [DownLoadPath] \n-u [UploadFile] \n-p <Upload/DownLoad File Path> \n-f <Baidu Pan FileID,Used Only In DownLoad Mode> \n-s <Baidu Pan FilePath,Used Only In Upload Mode> \n-m <Move File When Upload Success>'
         sys.exit(2)
     for opt, arg in opts:
         if opt == '-h':
-            print 'Using BDpan.py with Param \n-d [DownLoadFile] \n-u [UploadFile] \n-p <Upload/DownLoad File Path> \n-f <Baidu Pan FileID,Used Only In Download Mode> \n-s <Baidu Pan FilePath,Used Only In Upload Mode> \n-m <Move File When Upload Success>'
+            print 'Using BDpan.py with Param \n-d [DownLoadFile] \n-a [DownLoadPath] \n-u [UploadFile] \n-p <Upload/DownLoad File Path> \n-f <Baidu Pan FileID,Used Only In Download Mode> \n-s <Baidu Pan FilePath,Used Only In Upload Mode> \n-m <Move File When Upload Success>'
             sys.exit()
         elif opt == '-d': RunMode = "DownLoad"
+        elif opt == '-a':RunMode = "DownLoadPath"
         elif opt == '-u': RunMode = "Upload"
         elif opt == '-p': FilePath = arg
+        elif opt == '-i': DownPath = arg
         elif opt == '-f': FileID = arg
         elif opt == '-s': UploadPath = arg
         elif opt == "-m": FileUpLoad = "move"
@@ -279,11 +308,20 @@ if __name__ == '__main__':
     BD = BDpan()
     if RunMode == "DownLoad":
         BD.FileDownLoad(FilePath, FileID)
+    elif RunMode == "DownLoadPath":
+        BD.PathDownload(DownPath,FilePath)
     elif RunMode == "Upload":
         BD.FileUpload(FilePath,UploadPath,FileUpLoad)
     else:
         print "UnKnow Running Mode!"
         sys.exit(2)
+
+
+
+
+
+
+
 
 
 
